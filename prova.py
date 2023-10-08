@@ -1,6 +1,9 @@
 import os
+import sys
 import argparse
 import subprocess
+import requests
+import time
 
 from threading import Thread
 
@@ -117,6 +120,40 @@ class PiVoice(Thread):
                 except subprocess.CalledProcessError as e:
                     print(e)
                 finally:
+                    self.recorder.start()      
+                    
+            elif inference.intent == "mostraMeteo":
+                self.recorder.stop()
+                
+                city = inference.slots.get("citta")
+                url = f"http://api.weatherapi.com/v1/current.json?key=06754c26bc8542fe9b0122754230410&q={city}&aqi=no"            
+                
+                try:
+                    r = requests.get(url)
+                    if r.status_code == 200:
+                        body = r.json()['current']
+                        #body = body['current']
+                        temp = str(body['temp_c'])
+                        print(temp)
+                        cond_code = str(body['condition']['code'])
+                        print(cond_code)
+                        hum = str(body['humidity'])
+                        print(hum)
+                        
+                        arguments = ["meteo", cond_code, temp, hum]
+                        sudo_command = f"sudo -S {oled_exe} {' '.join(arguments)}"
+                        result = subprocess.Popen(sudo_command, shell=True, text=True)
+                        print(result)
+                        #while result.poll() is None:
+                        #    print("Processo C in esecuzione...")
+                        #    time.sleep(1)
+                    else:
+                        print(r.json())
+                except requests.ConnectionError:
+                    print("Failed to connect!")
+                except subprocess.CalledProcessError as e:
+                    print(e)
+                finally:
                     self.recorder.start()
                 
             else:
@@ -148,10 +185,6 @@ class PiVoice(Thread):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--access_key",
-                        help="AccessKey obtained from Picovoice Console (https://picovoice.ai/console/)",
-                        required=True)
-
     parser.add_argument("--microphone_index",
                         help="Index of input audio device",
                         type=int,
@@ -160,9 +193,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     recorder = None
+    access_key = "gLEeR53xMGRwaC2Bd1G7xEtpA21zkSZJW2GDp1783UbsCcBJ9ceMDQ=="
     app = PiVoice(os.path.join(os.path.dirname(__file__), 'porcupine.ppn'),
                   os.path.join(os.path.dirname(__file__), 'rhino.rhn'),
-                  args.access_key,
+                  access_key,
                   args.microphone_index,
                   recorder)
 

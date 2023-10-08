@@ -5,7 +5,7 @@
 #include<unistd.h>
 #include<stdio.h>
 
-int OLED_1in12_v3_test(void)
+int show_meteo(int cond_code, char* temp, char* hum)
 {
 	if(DEV_ModuleInit() != 0) {
 		return -1;
@@ -31,16 +31,30 @@ int OLED_1in12_v3_test(void)
 	DEV_Delay_ms(500);
 	Paint_Clear(BLACK);
 	// Drawing on the image
-	printf("Drawing:page 4\r\n");
-	GUI_ReadBmp("./pic/1in12v3.bmp", 0, 0);
+	printf("Drawing:\r\n");
+												// Finding the right bmp image based on cond_code
+	GUI_ReadBmp("./pic/rasplogo.bmp", 0, 0);
+	// Show image on page4
+	OLED_1in12_v3_Display(BlackImage);
+	DEV_Delay_ms(2000);	
+	Paint_Clear(BLACK);	
+	OLED_1in12_v3_Clear();
+	
+	Paint_DrawString_EN(10, 48, temp, &FontTIME, WHITE, WHITE);
 	// Show image on page4
 	OLED_1in12_v3_Display(BlackImage);
 	DEV_Delay_ms(2000);		
 	Paint_Clear(BLACK);
+	OLED_1in12_v3_Clear();
 	
-	Paint_NewImage(BlackImage, OLED_1in12_v3_WIDTH, OLED_1in12_v3_HEIGHT, 180, BLACK);
+	Paint_DrawString_EN(10, 48, hum, &FontTIME, WHITE, WHITE);
+	// Show image on page4
 	OLED_1in12_v3_Display(BlackImage);
+	DEV_Delay_ms(2000);		
 	Paint_Clear(BLACK);
+	OLED_1in12_v3_Clear();
+	
+	DEV_ModuleExit();
 	
 	return 0;
 }
@@ -76,10 +90,7 @@ int show_logo(void)
 	OLED_1in12_v3_Display(BlackImage);
 	DEV_Delay_ms(5000);		
 	Paint_Clear(BLACK);
-	
-	Paint_NewImage(BlackImage, OLED_1in12_v3_WIDTH, OLED_1in12_v3_HEIGHT, 180, BLACK);
-	OLED_1in12_v3_Display(BlackImage);
-	Paint_Clear(BLACK);
+	OLED_1in12_v3_Clear();
 	
 	return 0;
 }
@@ -138,10 +149,7 @@ int show_time(void)
 	OLED_1in12_v3_Display(BlackImage);	
 	DEV_Delay_ms(5000);
 	Paint_Clear(BLACK);
-	
-	Paint_NewImage(BlackImage, OLED_1in12_v3_WIDTH, OLED_1in12_v3_HEIGHT, 180, BLACK);
-	OLED_1in12_v3_Display(BlackImage);
-	Paint_Clear(BLACK);
+	OLED_1in12_v3_Clear();
 	
 	return 0;
 }

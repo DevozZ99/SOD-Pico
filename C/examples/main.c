@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
     // Exception handling:ctrl + c
     signal(SIGINT, Handler);
     
-    if (argc != 2){
+    if (argc < 2){
         printf("please input OLED size and type! \r\n");
         printf("example: sudo ./main 1.12v3 or sudo ./main 1.12v3badapple \r\n");
         exit(1);
@@ -27,8 +27,8 @@ int main(int argc, char *argv[])
 	
 	printf("%s OLED Moudule\r\n", argv[1]);
 		
-	if(strcmp(argv[1], "1.12v3") == 0)
-		OLED_1in12_v3_test();
+	if(strcmp(argv[1], "meteo") == 0)
+		show_meteo(argv[2], argv[3], argv[4]);
 	else if(strcmp(argv[1], "logo") == 0)
 		show_logo();
 	else if(strcmp(argv[1], "time") == 0)
