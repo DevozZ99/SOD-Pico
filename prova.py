@@ -3,6 +3,7 @@ import sys
 import argparse
 import subprocess
 import requests
+from datetime import datetime
 import time
 
 from threading import Thread
@@ -40,6 +41,25 @@ led_driver = APA102(num_led=num_led)
 
 oled_exe = "./C/main"
 
+class CApp:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._process = None
+        return cls._instance
+    
+    def start_c_app(self, arguments):
+        sudo_command = f"sudo -S {oled_exe} {' '.join(arguments)}"
+        if self._process is None:
+            self._process = subprocess.Popen(sudo_command, shell=True, text=True)
+            self._process.wait()
+            self._process.kill()
+            self._process = None
+        else:
+            print("C Application is already running")
+    
 class PiVoice(Thread):
 
     def __init__(self, keyword_path, context_path, access_key, device_index, recorder, porcupine_sensitivity=0.75, rhino_sensitivity=0.25):
@@ -56,6 +76,7 @@ class PiVoice(Thread):
         self._default_brightness = 20
         self._device_index = device_index
         self.recorder = recorder
+        self.cApp = CApp()
         
         for i in range(0, num_led):
             led_driver.set_brightness(i, self._default_brightness)
@@ -110,20 +131,17 @@ class PiVoice(Thread):
             elif inference.intent == "cambiareLuminosità":      
                 self.set_led_brightness(inference.slots.get("stanza"), int(inference.slots.get("lumdec")))
                 
-            elif inference.intent == "mostraOrario":
-                self.recorder.stop()
-                arguments = ["time"]
-                sudo_command = f"sudo -S {oled_exe} {' '.join(arguments)}"
+            elif inference.intent == "mostraOrario":                
+                now = datetime.now()
+                current_time = now.strftime("%H:%M")
+                print(current_time)
+                arguments = ["time", current_time]
                 try:
-                    result = subprocess.Popen(sudo_command, shell=True, text=True)
-                    print(result)
+                    self.cApp.start_c_app(arguments)
                 except subprocess.CalledProcessError as e:
-                    print(e)
-                finally:
-                    self.recorder.start()      
+                    print(e)    
                     
             elif inference.intent == "mostraMeteo":
-                self.recorder.stop()
                 
                 city = inference.slots.get("citta")
                 url = f"http://api.weatherapi.com/v1/current.json?key=06754c26bc8542fe9b0122754230410&q={city}&aqi=no"            
@@ -132,30 +150,22 @@ class PiVoice(Thread):
                     r = requests.get(url)
                     if r.status_code == 200:
                         body = r.json()['current']
-                        #body = body['current']
                         temp = str(body['temp_c'])
                         print(temp)
-                        cond_code = str(body['condition']['code'])
-                        print(cond_code)
+                        cond_code = str(body['condition']['code'] - 887)
+                        path = "./pic/weather/" + cond_code + ".bmp"
+                        print(path)
                         hum = str(body['humidity'])
                         print(hum)
                         
-                        arguments = ["meteo", cond_code, temp, hum]
-                        sudo_command = f"sudo -S {oled_exe} {' '.join(arguments)}"
-                        result = subprocess.Popen(sudo_command, shell=True, text=True)
-                        print(result)
-                        #while result.poll() is None:
-                        #    print("Processo C in esecuzione...")
-                        #    time.sleep(1)
+                        arguments = ["meteo", path, temp, hum]
+                        self.cApp.start_c_app(arguments)
                     else:
                         print(r.json())
                 except requests.ConnectionError:
                     print("Failed to connect!")
                 except subprocess.CalledProcessError as e:
-                    print(e)
-                finally:
-                    self.recorder.start()
-                
+                    print(e)                
             else:
                 raise NotImplementedError()                 #Gestire
 
