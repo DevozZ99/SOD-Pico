@@ -5,6 +5,7 @@ import argparse
 import subprocess
 import requests
 from datetime import datetime
+import threading
 from threading import Thread, Lock
 
 from apa102 import APA102
@@ -18,6 +19,12 @@ import adafruit_displayio_sh1107
 
 from picovoice import Picovoice
 from pvrecorder import PvRecorder
+
+import gtts
+from io import BytesIO
+import pydub
+from pydub import AudioSegment
+from pydub.playback import play
 
 RGB_COLORS = dict(
     blu=(0, 0, 255),
@@ -42,6 +49,56 @@ ROOMS = {
     'stanza da letto' : 2,
 }
 
+METEO = {
+    1000: "Sereno",
+    1003: "Parzialmente nuvoloso",
+    1006: "Nuvoloso",
+    1009: "Cielo coperto",
+    1030: "Nebbia",
+    1063: "Possibilità di pioggia sporadica",
+    1066: "Possibilità di neve sporadica",
+    1069: "Possibilità di nevischio sporadico",
+    1072: "Possibilità di pioggerella con gelicidio sporadico",
+    1087: "Possibilità di rovesci temporaleschi",
+    1114: "Blizzard",
+    1135: "Nebbia",
+    1147: "Nebbia gelata",
+    1150: "Possibilità di pioggerella leggera",
+    1153: "Pioggerella leggera",
+    1168: "Gelicidio leggero",
+    1171: "Gelicidio intenso",
+    1180: "Possibilità di pioggerella leggera",
+    1183: "Pioggia leggera",
+    1186: "Pioggia moderata a tratti",
+    1189: "Pioggia moderata",
+    1192: "Pioggia intensa a tratti",
+    1195: "Pioggia intensa",
+    1198: "Pioggia leggera con gelicidio",
+    1201: "Gelicidio moderato o intenso",
+    1204: "Nevischio leggero",
+    1207: "Nevischio moderato o intenso",
+    1210: "Possibilità di neve leggera",
+    1213: "Neve leggera",
+    1216: "Possibilità di neve moderata",
+    1219: "Neve moderata",
+    1222: "Possibilità di neve intensa",
+    1225: "Neve intensa",
+    1237: "Grandine",
+    1240: "Rovescio di pioggia leggera",
+    1243: "Rovescio di pioggia moderato o intenso",
+    1246: "Rovescio di pioggia torrenziale",
+    1249: "Rovescio di gelicidio leggero",
+    1252: "Rovescio di gelicidio moderato o intenso",
+    1255: "Rovescio di neve leggera",
+    1258: "Rovescio di neve moderato o intenso",
+    1261: "Rovescio di grandine leggera",
+    1264: "Rovescio di grandine moderato o intenso",
+    1273: "Possibilità di pioggia leggera con tuoni",
+    1276: "Pioggia moderata o intensa con tuoni",
+    1279: "Possibilità di neve leggera con tuoni",
+    1282: "Neve moderata o intensa con tuoni"
+}
+
 num_led = 3
 led_driver = APA102(num_led=num_led)
     
@@ -54,36 +111,30 @@ class DisplayManager:
         self.height = 128
         self.display = adafruit_displayio_sh1107.SH1107(self.display_bus, width=self.width, height=self.height, display_offset=adafruit_displayio_sh1107.DISPLAY_OFFSET_ADAFRUIT_128x128_OLED_5297, rotation=180)
         
-        self.show_stats = False
-        
+        self.show_stats = False        
         self.display_lock = Lock()
+        self.display_condition = threading.Condition(lock=self.display_lock)
         
     def show_image(self, path, duration=3):
-        with self.display_lock:
-            prev_show_stats = self.show_stats
-            self.show_stats = False
-            group = displayio.Group()
-            bitmap = displayio.OnDiskBitmap(path)
-            tile_grid = displayio.TileGrid(bitmap, pixel_shader = bitmap.pixel_shader)
-            group.append(tile_grid)
-            self.display.show(group)
-            if duration > 0:
-                time.sleep(duration)
-                self.reset_display()
-            self.show_stats = prev_show_stats
+        group = displayio.Group()
+        self.display.show(group)
+        bitmap = displayio.OnDiskBitmap(path)
+        tile_grid = displayio.TileGrid(bitmap, pixel_shader = bitmap.pixel_shader)            
+        group.append(tile_grid)
+        self.display.show(group)
+        if duration > 0:
+            time.sleep(duration)
+            self.reset_display()
 
     def show_text(self, text, duration=3):
-        with self.display_lock:
-            prev_show_stats = self.show_stats
-            self.show_stats = False
-            group = displayio.Group()
-            for label in text:
-                group.append(label)
-            self.display.show(group)
-            if duration > 0:
-                time.sleep(duration)
-                self.reset_display()
-            self.show_stats = prev_show_stats
+        group = displayio.Group()
+        self.display.show(group)
+        for label in text:
+            group.append(label)
+        self.display.show(group)
+        if duration > 0:
+            time.sleep(duration)
+            self.reset_display()
             
     def reset_display(self):
         group = displayio.Group()
@@ -122,9 +173,23 @@ class StatsCollector(Thread):
                 text_area.append(label.Label(terminalio.FONT, text=Disk, scale=2, color=0xFFFFFF, x=4, y=75))
                 text_area.append(label.Label(terminalio.FONT, text=Temperature, scale=2, color=0xFFFFFF, x=4, y=100))
                 #CHIAMA FUNZIONE PER MOSTRARE LE STATS
-                self.display_manager.show_text(text_area, duration=0)
+                lock_acquired = self.display_manager.display_lock.acquire(blocking=False)
+                if lock_acquired:
+                    try:
+                        self.display_manager.show_text(text_area, duration=0)
+                        time.sleep(0.2)
+                    finally:
+                        self.display_manager.display_lock.release()
             #SLEEP
             time.sleep(1)
+            
+def play_tts(text):
+        mp3_fo = BytesIO()
+        tts = gtts.gTTS(text, lang="it")
+        tts.write_to_fp(mp3_fo)
+        mp3_fo.seek(0)
+        audio = AudioSegment.from_file(mp3_fo, format="mp3")
+        play(audio)
 
 class PiVoice(Thread):
 
@@ -139,10 +204,11 @@ class PiVoice(Thread):
         self.context = self.picovoice.context_info
 
         self._default_color = 'bianco'
-        self._default_brightness = 20
+        self._default_brightness = 10
         self._device_index = device_index
         self.recorder = recorder
         self.display_manager =  display_manager
+        self.show_stats = False
         
         for i in range(0, num_led):
             led_driver.set_brightness(i, self._default_brightness)
@@ -168,10 +234,13 @@ class PiVoice(Thread):
 
     def wakeword_callback(self):
         print('[wake word]\n')
+        self.display_manager.display_lock.acquire()
+        time.sleep(0.2)
+        self.show_stats = self.display_manager.get_show_stats()
+        self.display_manager.set_show_stats(False)
         self.display_manager.show_image("pic/rasplogo.bmp", duration=0)
 
     def inference_callback(self, inference):
-        self.display_manager.reset_display()
         print("is_understood: " + str(inference.is_understood))
         if inference.is_understood:
             print("intent: " + str(inference.intent))
@@ -195,12 +264,13 @@ class PiVoice(Thread):
                 
             elif inference.intent == "accendereSchermo":
                 self.recorder.stop()
-                self.display_manager.set_show_stats(True)
+                #self.display_manager.set_show_stats(True)
+                self.show_stats = True
                 self.recorder.start()
                 
             elif inference.intent == "spegnereSchermo":
                 self.recorder.stop()
-                self.display_manager.set_show_stats(False)
+                self.show_stats = False
                 self.display_manager.reset_display()
                 self.recorder.start()
                 
@@ -208,8 +278,17 @@ class PiVoice(Thread):
                 self.recorder.stop()
                 now = datetime.now()
                 current_time = now.strftime("%H:%M")
+                
+                tts_text = "Sono le ore " + current_time
+                tts_thread = Thread(target=play_tts, args=(tts_text,))
+                tts_thread.start()
+                
                 text_area = [label.Label(terminalio.FONT, text=current_time, scale=4, color=0xFFFFFF, x=4, y=64)]
+                #self.show_stats = self.display_manager.get_show_stats()
+                #self.display_manager.set_show_stats(False)
                 self.display_manager.show_text(text_area)
+                #self.display_manager.set_show_stats(self.show_stats)
+                tts_thread.join()
                 self.recorder.start()
                     
             elif inference.intent == "mostraMeteo":
@@ -221,28 +300,45 @@ class PiVoice(Thread):
                     r = requests.get(url)
                     if r.status_code == 200:
                         body = r.json()['current']
-                        temp = str(body['temp_c']) + "C"
-                        cond_code = str(body['condition']['code'] - 887)
-                        path = "./pic/weather/" + cond_code + ".bmp"
+                        temp = str(body['temp_c'])
+                        cond_code = body['condition']['code']
+                        bmp_code = str(cond_code - 887)
+                        path = "./pic/weather/" + bmp_code + ".bmp"
                         hum = str(body['humidity']) + "%"
                         
                         self.recorder.stop()
+                                                
+                        tts_text = METEO.get(cond_code) + " con una temperatura di " + temp + "gradi e umidità al " + hum
+                        tts_thread = Thread(target=play_tts, args=(tts_text,))
+                        tts_thread.start()
+                        
+                        #self.show_stats = self.display_manager.get_show_stats()
+                        #self.display_manager.set_show_stats(False)
                         self.display_manager.show_image(path)
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="TEMP", scale=5, color=0xFFFFFF, x=4, y=32))
-                        text_area.append(label.Label(terminalio.FONT, text=temp, scale=4, color=0xFFFFFF, x=4, y=96))
+                        text_area.append(label.Label(terminalio.FONT, text=temp + "°C", scale=4, color=0xFFFFFF, x=4, y=96))
                         self.display_manager.show_text(text_area)
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="HUM", scale=6, color=0xFFFFFF, x=8, y=32))
                         text_area.append(label.Label(terminalio.FONT, text=hum, scale=6, color=0xFFFFFF, x=8, y=96))
                         self.display_manager.show_text(text_area)
+                        #self.display_manager.set_show_stats(self.show_stats)
                         self.recorder.start()
                     else:
                         print(r.json())
                 except requests.ConnectionError:
                     print("Failed to connect!")                
             else:
-                raise NotImplementedError()                 #Gestire
+                raise NotImplementedError()
+        else:
+            self.recorder.stop()
+            #self.display_manager.set_show_stats(self.show_stats)
+            play_tts("Non ho capito")
+            self.recorder.start()
+        self.display_manager.reset_display()
+        self.display_manager.display_lock.release()
+        self.display_manager.set_show_stats(self.show_stats)
 
     def run(self):
         self.recorder = None
