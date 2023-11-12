@@ -181,7 +181,7 @@ class StatsCollector(Thread):
                     finally:
                         self.display_manager.display_lock.release()
             #SLEEP
-            time.sleep(1)
+            time.sleep(1)               
             
 def play_tts(text):
         mp3_fo = BytesIO()
@@ -238,7 +238,7 @@ class PiVoice(Thread):
         time.sleep(0.2)
         self.show_stats = self.display_manager.get_show_stats()
         self.display_manager.set_show_stats(False)
-        self.display_manager.show_image("pic/rasplogo.bmp", duration=0)
+        self.display_manager.show_image("pic/pico.bmp", duration=0)
 
     def inference_callback(self, inference):
         print("is_understood: " + str(inference.is_understood))
@@ -264,7 +264,6 @@ class PiVoice(Thread):
                 
             elif inference.intent == "accendereSchermo":
                 self.recorder.stop()
-                #self.display_manager.set_show_stats(True)
                 self.show_stats = True
                 self.recorder.start()
                 
@@ -284,10 +283,7 @@ class PiVoice(Thread):
                 tts_thread.start()
                 
                 text_area = [label.Label(terminalio.FONT, text=current_time, scale=4, color=0xFFFFFF, x=4, y=64)]
-                #self.show_stats = self.display_manager.get_show_stats()
-                #self.display_manager.set_show_stats(False)
                 self.display_manager.show_text(text_area)
-                #self.display_manager.set_show_stats(self.show_stats)
                 tts_thread.join()
                 self.recorder.start()
                     
@@ -312,8 +308,6 @@ class PiVoice(Thread):
                         tts_thread = Thread(target=play_tts, args=(tts_text,))
                         tts_thread.start()
                         
-                        #self.show_stats = self.display_manager.get_show_stats()
-                        #self.display_manager.set_show_stats(False)
                         self.display_manager.show_image(path)
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="TEMP", scale=5, color=0xFFFFFF, x=4, y=32))
@@ -323,7 +317,6 @@ class PiVoice(Thread):
                         text_area.append(label.Label(terminalio.FONT, text="HUM", scale=6, color=0xFFFFFF, x=8, y=32))
                         text_area.append(label.Label(terminalio.FONT, text=hum, scale=6, color=0xFFFFFF, x=8, y=96))
                         self.display_manager.show_text(text_area)
-                        #self.display_manager.set_show_stats(self.show_stats)
                         self.recorder.start()
                     else:
                         print(r.json())
@@ -333,7 +326,6 @@ class PiVoice(Thread):
                 raise NotImplementedError()
         else:
             self.recorder.stop()
-            #self.display_manager.set_show_stats(self.show_stats)
             play_tts("Non ho capito")
             self.recorder.start()
         self.display_manager.reset_display()
@@ -356,10 +348,16 @@ class PiVoice(Thread):
                 self.picovoice.process(pcm)
         except KeyboardInterrupt:
             sys.stdout.write('\b' * 2)
-            print("Exiting...")
+            print("PiVoice Exiting...")
         finally:
             if self.recorder is not None:
                 self.recorder.delete()
+                
+            self.display_manager.set_show_stats(False)
+                
+            time.sleep(0.5)
+            self.display_manager.reset_display()
+            time.sleep(0.5)
 
             self.picovoice.delete()
 
@@ -376,7 +374,7 @@ if __name__ == "__main__":
     display_manager = DisplayManager()
     
     stats_thread = StatsCollector(display_manager)
-    stats_thread.daemon = True
+    stats_thread.daemon = False
     stats_thread.start()
 
     recorder = None
