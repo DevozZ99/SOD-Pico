@@ -115,7 +115,11 @@ class DisplayManager:
         self.display_bus = displayio.I2CDisplay(self.i2c, device_address=0x3c)
         self.width = 128
         self.height = 128
-        self.display = adafruit_displayio_sh1107.SH1107(self.display_bus, width=self.width, height=self.height, display_offset=adafruit_displayio_sh1107.DISPLAY_OFFSET_ADAFRUIT_128x128_OLED_5297, rotation=180)
+        try:
+            self.display = adafruit_displayio_sh1107.SH1107(self.display_bus, width=self.width, height=self.height, display_offset=adafruit_displayio_sh1107.DISPLAY_OFFSET_ADAFRUIT_128x128_OLED_5297, rotation=180)
+        except:
+            print("Display initialization failed!")
+            sys.exit(-1)
         #Variables for synchronization
         self.show_stats = False        
         self.display_lock = Lock()
@@ -440,14 +444,14 @@ if __name__ == "__main__":
     parser.add_argument("--microphone_index",
                         help="Index of input audio device",
                         type=int,
-                        default=-1)
+                        default=2)
 
     args = parser.parse_args()
     
     display_manager = DisplayManager()
     
     stats_thread = StatsCollector(display_manager)
-    stats_thread.daemon = False
+    #stats_thread.daemon = False
     stats_thread.start()
 
     recorder = None
@@ -457,5 +461,7 @@ if __name__ == "__main__":
                   access_key,
                   args.microphone_index,
                   recorder, display_manager)
-
-    app.run()
+    try:
+        app.run()
+    except:
+        sys.exit(0)

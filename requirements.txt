@@ -1,0 +1,12 @@
+spidev
+rpi.gpio
+pyaudio
+pvporcupine==2.2.0
+pvrecorder
+picovoice
+adafruit-blinka-displayio
+adafruit-circuitpython-display-text
+adafruit-circuitpython-displayio-sh1107
+gTTS
+pydub
+simpleaudio
