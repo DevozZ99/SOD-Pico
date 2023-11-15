@@ -11,7 +11,6 @@ from threading import Thread, Lock
 from apa102 import APA102
 
 import board
-import busio
 import displayio
 import terminalio
 from adafruit_display_text import label
@@ -22,10 +21,10 @@ from pvrecorder import PvRecorder
 
 import gtts
 from io import BytesIO
-import pydub
 from pydub import AudioSegment
 from pydub.playback import play
 
+#Definition of RGB colors for LEDs
 RGB_COLORS = dict(
     blu=(0, 0, 255),
     bianco=(255 , 255 , 255),
@@ -39,6 +38,7 @@ RGB_COLORS = dict(
     off=(0, 0, 0),
 )
 
+#Definition of room names to LED indices
 ROOMS = {
     'cucina' : 0,
     'soggiorno' : 1,
@@ -49,6 +49,7 @@ ROOMS = {
     'stanza da letto' : 2,
 }
 
+#Weather conditions descriptions for TTS
 METEO = {
     1000: "Sereno",
     1003: "Parzialmente nuvoloso",
@@ -99,23 +100,34 @@ METEO = {
     1282: "Neve moderata o intensa con tuoni"
 }
 
+#Number of LEDs and LED driver initialization
 num_led = 3
 led_driver = APA102(num_led=num_led)
     
 class DisplayManager:
+    '''
+    Manages the Grove OLED display
+    '''
     def __init__(self):
+        #Display initialization
         displayio.release_displays()
         self.i2c = board.I2C()
         self.display_bus = displayio.I2CDisplay(self.i2c, device_address=0x3c)
         self.width = 128
         self.height = 128
         self.display = adafruit_displayio_sh1107.SH1107(self.display_bus, width=self.width, height=self.height, display_offset=adafruit_displayio_sh1107.DISPLAY_OFFSET_ADAFRUIT_128x128_OLED_5297, rotation=180)
-        
+        #Variables for synchronization
         self.show_stats = False        
         self.display_lock = Lock()
-        self.display_condition = threading.Condition(lock=self.display_lock)
         
     def show_image(self, path, duration=3):
+        '''
+        Shows an image on the display.
+        
+        Args:
+            path (str): Path to the .bmp file.
+            duration (int): Time in seconds for which the image is displayed. If 0 display is not reset.
+        '''
         group = displayio.Group()
         self.display.show(group)
         bitmap = displayio.OnDiskBitmap(path)
@@ -127,6 +139,13 @@ class DisplayManager:
             self.reset_display()
 
     def show_text(self, text, duration=3):
+        '''
+        Shows text on the display.
+        
+        Args:
+            text (list): List of labels.
+            duration (int): Time in seconds for which the text is displayed. If 0 display is not reset.
+        '''
         group = displayio.Group()
         self.display.show(group)
         for label in text:
@@ -137,16 +156,28 @@ class DisplayManager:
             self.reset_display()
             
     def reset_display(self):
+        '''
+        Resets the display to default state.
+        '''
         group = displayio.Group()
         self.display.show(group)
     
     def get_show_stats(self):
+        '''
+        Returns the current value of show_stats.
+        '''
         return self.show_stats
     
     def set_show_stats(self, value):
+        '''
+        Sets show_stats to value
+        '''
         self.show_stats = value
 
 class StatsCollector(Thread):
+    '''
+    Thread for collecting and displaying system statistics
+    '''
     def __init__(self, display_manager):
         super().__init__()
         self.display_manager = display_manager
@@ -154,7 +185,7 @@ class StatsCollector(Thread):
     def run(self):
         while True:
             if self.display_manager.get_show_stats():
-                #CALCOLA STATS
+                #Collect system statistics
                 cmd = "top -bn1 | grep load | awk '{printf \"%.2f\", $(NF-2)}'"
                 CPU = subprocess.check_output(cmd, shell = True, text=True)
 
@@ -167,12 +198,13 @@ class StatsCollector(Thread):
                 cmd = "vcgencmd measure_temp | cut -d '=' -f 2 | head --bytes -1"
                 Temperature = subprocess.check_output(cmd, shell = True, text=True)
                 
+                #Create labels
                 text_area = []
                 text_area.append(label.Label(terminalio.FONT, text="CPU:"+ CPU + "%", scale=2, color=0xFFFFFF, x=4, y=25))
                 text_area.append(label.Label(terminalio.FONT, text=MemUsage, scale=2, color=0xFFFFFF, x=4, y=50))
                 text_area.append(label.Label(terminalio.FONT, text=Disk, scale=2, color=0xFFFFFF, x=4, y=75))
                 text_area.append(label.Label(terminalio.FONT, text=Temperature, scale=2, color=0xFFFFFF, x=4, y=100))
-                #CHIAMA FUNZIONE PER MOSTRARE LE STATS
+                #Display labels
                 lock_acquired = self.display_manager.display_lock.acquire(blocking=False)
                 if lock_acquired:
                     try:
@@ -180,40 +212,63 @@ class StatsCollector(Thread):
                         time.sleep(0.2)
                     finally:
                         self.display_manager.display_lock.release()
-            #SLEEP
+            #Sleep for 1 second before next iteration
             time.sleep(1)               
             
 def play_tts(text):
-        mp3_fo = BytesIO()
-        tts = gtts.gTTS(text, lang="it")
-        tts.write_to_fp(mp3_fo)
-        mp3_fo.seek(0)
-        audio = AudioSegment.from_file(mp3_fo, format="mp3")
-        play(audio)
+    '''
+    Converts text to speech and plays it.
+    
+    Args:
+        text (str): Message to be played.
+    '''
+    mp3_fo = BytesIO()
+    tts = gtts.gTTS(text, lang="it")
+    tts.write_to_fp(mp3_fo)
+    mp3_fo.seek(0)
+    audio = AudioSegment.from_file(mp3_fo, format="mp3")
+    play(audio)
 
 class PiVoice(Thread):
-
+    '''
+    Thread for handling Picovoice functionality.
+    '''
     def __init__(self, keyword_path, context_path, access_key, device_index, recorder, display_manager, porcupine_sensitivity=0.75, rhino_sensitivity=0.25):
         super(PiVoice, self).__init__()
 
         def inference_callback(inference):
             return self.inference_callback(inference)
 
-        self.picovoice = Picovoice(access_key=access_key, keyword_path=keyword_path, wake_word_callback=self.wakeword_callback, context_path=context_path, inference_callback=inference_callback, porcupine_sensitivity=porcupine_sensitivity, rhino_sensitivity=rhino_sensitivity)
-
+        #Picovoice initialization
+        self.picovoice = Picovoice(
+            access_key=access_key, keyword_path=keyword_path,
+            wake_word_callback=self.wakeword_callback,
+            context_path=context_path, inference_callback=inference_callback,
+            porcupine_sensitivity=porcupine_sensitivity, rhino_sensitivity=rhino_sensitivity
+        )
+        #Initialize context information
         self.context = self.picovoice.context_info
-
+        #Initialize default LED color and brightness value
         self._default_color = 'bianco'
         self._default_brightness = 10
+        #Initialize microphone device_index and pvrecorder
         self._device_index = device_index
         self.recorder = recorder
+        #Initialize display manager and synchronization variable
         self.display_manager =  display_manager
         self.show_stats = False
-        
+        #Set brightness to the default value for all of the LEDs
         for i in range(0, num_led):
             led_driver.set_brightness(i, self._default_brightness)
             
     def set_led_brightness(self, room, brightness):
+        '''
+        Sets the brightness of LEDs.
+
+        Args:
+            room (str): Room name (optional, set to None for all LEDs).
+            brightness (int): Brightness level.
+        '''
         if room is not None:
             led_driver.set_brightness(ROOMS[room], brightness)
         else:
@@ -222,6 +277,13 @@ class PiVoice(Thread):
         led_driver.show()
         
     def set_led_color(self, room, color):
+        '''
+        Sets the color of LEDs.
+
+        Args:
+            room (str): Room name (optional, set to None for all LEDs).
+            color (str): Color name.
+        '''
         new_color = self._default_color
         if color is not None:
             new_color = color
@@ -233,6 +295,9 @@ class PiVoice(Thread):
         led_driver.show()
 
     def wakeword_callback(self):
+        '''
+        Callback function for when the wake word is detected.
+        '''
         print('[wake word]\n')
         self.display_manager.display_lock.acquire()
         time.sleep(0.2)
@@ -241,6 +306,12 @@ class PiVoice(Thread):
         self.display_manager.show_image("pic/pico.bmp", duration=0)
 
     def inference_callback(self, inference):
+        '''
+        Callback function for Picovoice inference results.
+
+        Args:
+            inference (PicovoiceInference): Inference result.
+        '''
         print("is_understood: " + str(inference.is_understood))
         if inference.is_understood:
             print("intent: " + str(inference.intent))
@@ -352,6 +423,8 @@ class PiVoice(Thread):
         finally:
             if self.recorder is not None:
                 self.recorder.delete()
+                
+            self.set_led_color(None, "off")
                 
             self.display_manager.set_show_stats(False)
                 
