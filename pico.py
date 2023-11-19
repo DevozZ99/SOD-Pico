@@ -228,16 +228,20 @@ def play_tts(text):
     '''
     mp3_fo = BytesIO()
     tts = gtts.gTTS(text, lang="it")
-    tts.write_to_fp(mp3_fo)
-    mp3_fo.seek(0)
-    audio = AudioSegment.from_file(mp3_fo, format="mp3")
-    play(audio)
+    try:
+        tts.write_to_fp(mp3_fo) 
+        mp3_fo.seek(0)
+        audio = AudioSegment.from_file(mp3_fo, format="mp3")
+        play(audio)
+    except:
+        print("The text-to-speech transformation has failed. Please check your internet connection and try again.")    
+
 
 class PiVoice(Thread):
     '''
     Thread for handling Picovoice functionality.
     '''
-    def __init__(self, keyword_path, context_path, access_key, device_index, recorder, display_manager, porcupine_sensitivity=0.75, rhino_sensitivity=0.25):
+    def __init__(self, keyword_path, context_path, access_key, weather_key, device_index, recorder, display_manager, porcupine_sensitivity=0.75, rhino_sensitivity=0.25):
         super(PiVoice, self).__init__()
 
         def inference_callback(inference):
@@ -261,6 +265,8 @@ class PiVoice(Thread):
         #Initialize display manager and synchronization variable
         self.display_manager =  display_manager
         self.show_stats = False
+        #Set weather api key
+        self.weather_key = weather_key
         #Set brightness to the default value for all of the LEDs
         for i in range(0, num_led):
             led_driver.set_brightness(i, self._default_brightness)
@@ -365,7 +371,7 @@ class PiVoice(Thread):
             elif inference.intent == "mostraMeteo":
                 
                 city = inference.slots.get("citta")
-                url = f"http://api.weatherapi.com/v1/current.json?key=06754c26bc8542fe9b0122754230410&q={city}&aqi=no"            
+                url = f"http://api.weatherapi.com/v1/current.json?key={self.weather_key}&q={city}&aqi=no"          
                 
                 try:
                     r = requests.get(url)
@@ -391,12 +397,13 @@ class PiVoice(Thread):
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="HUM", scale=6, color=0xFFFFFF, x=8, y=32))
                         text_area.append(label.Label(terminalio.FONT, text=hum, scale=6, color=0xFFFFFF, x=8, y=96))
-                        self.display_manager.show_text(text_area)
-                        self.recorder.start()
+                        self.display_manager.show_text(text_area)                        
                     else:
-                        print(r.json())
-                except requests.ConnectionError:
-                    print("Failed to connect!")                
+                        print("HTTP Error " + r.status_code)
+                except:
+                    print("Connection failed. Please check your internet connection and try again.")
+                finally:
+                    self.recorder.start()
             else:
                 raise NotImplementedError()
         else:
@@ -451,14 +458,15 @@ if __name__ == "__main__":
     display_manager = DisplayManager()
     
     stats_thread = StatsCollector(display_manager)
-    #stats_thread.daemon = False
     stats_thread.start()
 
     recorder = None
-    access_key = "gLEeR53xMGRwaC2Bd1G7xEtpA21zkSZJW2GDp1783UbsCcBJ9ceMDQ=="
+    with open("keys.txt", "r") as keys_file:
+        access_key=keys_file.readline()
+        weather_key=keys_file.readline()
     app = PiVoice(os.path.join(os.path.dirname(__file__), 'porcupine.ppn'),
                   os.path.join(os.path.dirname(__file__), 'rhino.rhn'),
-                  access_key,
+                  access_key, weather_key,
                   args.microphone_index,
                   recorder, display_manager)
     try:
