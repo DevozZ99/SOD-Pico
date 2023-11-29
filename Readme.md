@@ -33,7 +33,7 @@ pip3 install -r requirements.txt
 ```
 Replace the default (English) Picovoice models parameters (in "/home/user/.local/lib/python3.11/site-packages/pvrhino/lib/common" and "/home/user/.local/lib/python3.11/site-packages/pvporcupine/lib/common") with the ones included in the PvModel directory.
 
-Write down your [Picovoice AccessKey](https://console.picovoice.ai/) and [WeatherApi ApiKey](https://www.weatherapi.com/my/) respectively in the first and second line of the keys.txt file.
+Write down your [Picovoice AccessKey](https://console.picovoice.ai/) and [WeatherApi ApiKey](https://www.weatherapi.com/my/) in the corresponding lines of the 'config.ini' file.
 
 ## Usage
 Make sure the Raspberry is connected to the internet.
