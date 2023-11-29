@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import argparse
+import configparser
 import subprocess
 import requests
 from datetime import datetime
@@ -112,7 +113,7 @@ class DisplayManager:
         #Display initialization
         displayio.release_displays()
         self.i2c = board.I2C()
-        self.display_bus = displayio.I2CDisplay(self.i2c, device_address=0x3c)
+        self.display_bus = displayio.I2CDisplay(self.i2c, device_address=0x3c)	#use command 'i2cdetect -y 1' to get the address
         self.width = 128
         self.height = 128
         try:
@@ -217,7 +218,8 @@ class StatsCollector(Thread):
                     finally:
                         self.display_manager.display_lock.release()
             #Sleep for 1 second before next iteration
-            time.sleep(1)               
+            time.sleep(1)
+            
             
 def play_tts(text):
     '''
@@ -227,10 +229,13 @@ def play_tts(text):
         text (str): Message to be played.
     '''
     mp3_fo = BytesIO()
+    #Specify the text and the language to use to create spoken message
     tts = gtts.gTTS(text, lang="it")
     try:
+        #Make the API request and write response into a file-like object
         tts.write_to_fp(mp3_fo) 
         mp3_fo.seek(0)
+        #Use pydub to play the audio
         audio = AudioSegment.from_file(mp3_fo, format="mp3")
         play(audio)
     except:
@@ -294,6 +299,7 @@ class PiVoice(Thread):
             room (str): Room name (optional, set to None for all LEDs).
             color (str): Color name.
         '''
+        #If a color wasn't specified in the spoken command use the default one
         new_color = self._default_color
         if color is not None:
             new_color = color
@@ -309,6 +315,7 @@ class PiVoice(Thread):
         Callback function for when the wake word is detected.
         '''
         print('[wake word]\n')
+        #Show a 'wake word recognised' image on the display
         self.display_manager.display_lock.acquire()
         time.sleep(0.2)
         self.show_stats = self.display_manager.get_show_stats()
@@ -356,13 +363,16 @@ class PiVoice(Thread):
                 
             elif inference.intent == "mostraOrario":
                 self.recorder.stop()
+                #Get current time
                 now = datetime.now()
                 current_time = now.strftime("%H:%M")
                 
+                #Play TTS message
                 tts_text = "Sono le ore " + current_time
                 tts_thread = Thread(target=play_tts, args=(tts_text,))
                 tts_thread.start()
                 
+                #Display current time on the display as text
                 text_area = [label.Label(terminalio.FONT, text=current_time, scale=4, color=0xFFFFFF, x=4, y=64)]
                 self.display_manager.show_text(text_area)
                 tts_thread.join()
@@ -374,26 +384,35 @@ class PiVoice(Thread):
                 url = f"http://api.weatherapi.com/v1/current.json?key={self.weather_key}&q={city}&aqi=no"          
                 
                 try:
+                    #Make a request to WeatherAPI
                     r = requests.get(url)
                     if r.status_code == 200:
                         body = r.json()['current']
+                        #Get temperature in Celsius
                         temp = str(body['temp_c'])
+                        #Get weather condition code
                         cond_code = body['condition']['code']
+                        #Translate weather condition code into the corresponding bitmap image code
                         bmp_code = str(cond_code - 887)
                         path = "./pic/weather/" + bmp_code + ".bmp"
+                        #Get humidity level
                         hum = str(body['humidity']) + "%"
                         
                         self.recorder.stop()
-                                                
+                        
+                        #Play TTS message
                         tts_text = METEO.get(cond_code) + " con una temperatura di " + temp + "gradi e umidità al " + hum
                         tts_thread = Thread(target=play_tts, args=(tts_text,))
                         tts_thread.start()
                         
+                        #Show weather condition image
                         self.display_manager.show_image(path)
+                        #Show temperature on the display as text
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="TEMP", scale=5, color=0xFFFFFF, x=4, y=32))
                         text_area.append(label.Label(terminalio.FONT, text=temp + "°C", scale=4, color=0xFFFFFF, x=4, y=96))
                         self.display_manager.show_text(text_area)
+                        #Show humidity level on the display as text
                         text_area = []
                         text_area.append(label.Label(terminalio.FONT, text="HUM", scale=6, color=0xFFFFFF, x=8, y=32))
                         text_area.append(label.Label(terminalio.FONT, text=hum, scale=6, color=0xFFFFFF, x=8, y=96))
@@ -407,9 +426,11 @@ class PiVoice(Thread):
             else:
                 raise NotImplementedError()
         else:
+            #Play a TTS 'command not understood' message
             self.recorder.stop()
             play_tts("Non ho capito")
             self.recorder.start()
+        #Reset display and 'show_stats' value
         self.display_manager.reset_display()
         self.display_manager.display_lock.release()
         self.display_manager.set_show_stats(self.show_stats)
@@ -439,37 +460,45 @@ class PiVoice(Thread):
                 
             self.display_manager.set_show_stats(False)
                 
-            time.sleep(0.5)
+            time.sleep(1)
             self.display_manager.reset_display()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
             self.picovoice.delete()
 
 if __name__ == "__main__":
+    #Parse arguments
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--microphone_index",
                         help="Index of input audio device",
                         type=int,
                         default=2)
-
     args = parser.parse_args()
     
+    #Create a DisplayManager object
     display_manager = DisplayManager()
     
+    #Create and start stats collecting thread
     stats_thread = StatsCollector(display_manager)
+    stats_thread.daemon = True 
     stats_thread.start()
 
     recorder = None
-    with open("keys.txt", "r") as keys_file:
-        access_key=keys_file.readline()
-        weather_key=keys_file.readline()
+    
+    #Get API Keys from 'config.ini'
+    config = configparser.ConfigParser()
+    try:
+        config.read('config.ini')
+        access_key = config['Keys']['picovoice']
+        weather_key = config['Keys']['weatherapi']
+    except:
+        print("Configuration file (config.ini) not found or contains errors.")
+        sys.exit(-1)
+
+    #Create and run Picovoice application thread
     app = PiVoice(os.path.join(os.path.dirname(__file__), 'porcupine.ppn'),
                   os.path.join(os.path.dirname(__file__), 'rhino.rhn'),
                   access_key, weather_key,
                   args.microphone_index,
-                  recorder, display_manager)
-    try:
-        app.run()
-    except:
-        sys.exit(0)
+                  recorder, display_manager)    
+    app.run()
